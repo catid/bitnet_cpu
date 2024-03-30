@@ -2,6 +2,8 @@
 
 This Python project automates the generation of C++ code for neural network models by quantizing the weights stored in safetensors files. It reads the model weights, quantizes them into ternary values (-1, 0, 1), calculates the scale factor for each weight tensor, and generates C++ code that utilizes these quantized weights for matrix operations. This approach is particularly useful for optimizing model inference on platforms where low precision computations are beneficial.
 
+![Example output](example_output.png)
+
 ## Features
 
 * Reads model weights from a safetensors file.
