@@ -193,7 +193,7 @@ std::vector<std::pair<size_t, size_t>> ModelWeightSizes = {
     { 3200, 3200 },
 };
 
-const size_t NUM_BENCHMARK_ITERATIONS = 100;
+const size_t NUM_BENCHMARK_ITERATIONS = 1;
 
 int main() {
 
@@ -248,7 +248,7 @@ int main() {
         output_buffers.push_back(output_buffer);
     }
 
-    std::cout << "Bencharking model..." << std::endl;
+    std::cout << "Benchmarking model..." << std::endl;
 
     // Benchmark iterations
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -256,7 +256,7 @@ int main() {
         for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
             size_t input_size = ModelWeightSizes[j].first;
             size_t output_size = ModelWeightSizes[j].second;
-            bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+            bitnet_vmul_simd(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
                                       scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
                                       output_buffers[j]);
         }
@@ -269,7 +269,7 @@ int main() {
 
     // Print benchmark results
     std::cout << "Benchmark Results:" << std::endl;
-    std::cout << "Number of Tensor Sizes: " << ModelWeightSizes.size() << std::endl;
+    std::cout << "Number of Layers: " << ModelWeightSizes.size() << std::endl;
     std::cout << "Number of Benchmark Iterations: " << NUM_BENCHMARK_ITERATIONS << std::endl;
     std::cout << "Average Time per Iteration: " << avg_time << " milliseconds" << std::endl;
 
