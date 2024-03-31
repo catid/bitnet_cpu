@@ -250,9 +250,11 @@ int main() {
 
     std::cout << "Benchmarking model..." << std::endl;
 
-    const int warmup_iterations = 2;
+    double avg_time = 0.0;
+
+    if (CpuSupportsAVX512())
     {
-        for (size_t i = 0; i < warmup_iterations; ++i) {
+        {
             auto start_time = std::chrono::high_resolution_clock::now();
             for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
                 size_t input_size = ModelWeightSizes[j].first;
@@ -264,24 +266,56 @@ int main() {
             auto end_time = std::chrono::high_resolution_clock::now();
             std::cout << "Warmup iteration " << i + 1 << " took " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " milliseconds" << std::endl;
         }
-    }
 
-    // Benchmark iterations
-    auto start_time = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < NUM_BENCHMARK_ITERATIONS; ++i) {
-        for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
-            size_t input_size = ModelWeightSizes[j].first;
-            size_t output_size = ModelWeightSizes[j].second;
-            bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
-                                      scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
-                                      output_buffers[j]);
+        // Benchmark iterations
+        auto start_time = std::chrono::high_resolution_clock::now();
+        for (size_t i = 0; i < NUM_BENCHMARK_ITERATIONS; ++i) {
+            for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
+                size_t input_size = ModelWeightSizes[j].first;
+                size_t output_size = ModelWeightSizes[j].second;
+                bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+                                        scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                                        output_buffers[j]);
+            }
         }
-    }
-    auto end_time = std::chrono::high_resolution_clock::now();
+        auto end_time = std::chrono::high_resolution_clock::now();
 
-    // Calculate average time per iteration
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    double avg_time = static_cast<double>(duration.count()) / NUM_BENCHMARK_ITERATIONS;
+        // Calculate average time per iteration
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        avg_time = static_cast<double>(duration.count()) / NUM_BENCHMARK_ITERATIONS;
+    }
+    else
+    {
+        {
+            auto start_time = std::chrono::high_resolution_clock::now();
+            for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
+                size_t input_size = ModelWeightSizes[j].first;
+                size_t output_size = ModelWeightSizes[j].second;
+                bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+                                        scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                                        output_buffers[j]);
+            }
+            auto end_time = std::chrono::high_resolution_clock::now();
+            std::cout << "Warmup iteration " << i + 1 << " took " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " milliseconds" << std::endl;
+        }
+
+        // Benchmark iterations
+        auto start_time = std::chrono::high_resolution_clock::now();
+        for (size_t i = 0; i < NUM_BENCHMARK_ITERATIONS; ++i) {
+            for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
+                size_t input_size = ModelWeightSizes[j].first;
+                size_t output_size = ModelWeightSizes[j].second;
+                bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+                                        scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                                        output_buffers[j]);
+            }
+        }
+        auto end_time = std::chrono::high_resolution_clock::now();
+
+        // Calculate average time per iteration
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        avg_time = static_cast<double>(duration.count()) / NUM_BENCHMARK_ITERATIONS;
+    }
 
     // Print benchmark results
     std::cout << "Benchmark Results:" << std::endl;

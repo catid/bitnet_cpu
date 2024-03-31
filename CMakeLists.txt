@@ -4,7 +4,11 @@ project(MaskedSubtraction)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Ox /fp:fast")
+else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -O3 -funroll-loops")
+endif()
 
 add_library(bitnet_cpu STATIC
     math_functions.cpp
@@ -21,7 +25,6 @@ add_executable(benchmark_model
 target_link_libraries(benchmark_model
     bitnet_cpu
 )
-target_compile_options(benchmark_model PRIVATE -O3)
 install(TARGETS benchmark_model DESTINATION bin)
 
 add_subdirectory(tests)

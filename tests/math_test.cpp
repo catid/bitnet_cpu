@@ -14,8 +14,6 @@ bool random_unit_test() {
     std::uniform_real_distribution<float> float_dist(0.1f, 20.0f);
 
     std::vector<int8_t> x(input_size);
-    std::vector<int8_t> mask_add(output_size * input_size);
-    std::vector<int8_t> mask_sub(output_size * input_size);
     std::vector<float> scale_x(input_size / 32);
     std::vector<float> scale_y(input_size * output_size / 32);
     std::vector<float> out_simd(output_size);
@@ -23,11 +21,6 @@ bool random_unit_test() {
 
     for (size_t i = 0; i < x.size(); ++i) {
         x[i] = int8_dist(gen);
-    }
-
-    for (size_t i = 0; i < mask_add.size(); ++i) {
-        mask_add[i] = int8_dist(gen) >= 0 ? -1 : 0;
-        mask_sub[i] = int8_dist(gen) >= 0 ? -1 : 0;
     }
 
     for (size_t i = 0; i < scale_x.size(); ++i) {
@@ -38,13 +31,43 @@ bool random_unit_test() {
         scale_y[i] = float_dist(gen);
     }
 
-    bitnet_vmul_simd_unrolled(x.data(), mask_add.data(), mask_sub.data(),
-                scale_x.data(), scale_y.data(),
-                input_size, output_size, out_simd.data());
+    if (CpuSupportsAVX512()) {
+        std::cout << "Running AVX-512 version" << std::endl;
 
-    bitnet_vmul_ref(x.data(), mask_add.data(), mask_sub.data(),
+        std::vector<uint32_t> mask_add(output_size * input_size / 32);
+        std::vector<uint32_t> mask_sub(output_size * input_size / 32);
+
+        for (size_t i = 0; i < mask_add.size(); ++i) {
+            mask_add[i] = gen();
+            mask_sub[i] = gen();
+        }
+
+        bitnet_vmul_avx512_ref(x.data(), mask_add.data(), mask_sub.data(),
                     scale_x.data(), scale_y.data(),
-                    input_size, output_size, out_ref.data());
+                    input_size, output_size, out_simd.data());
+
+        bitnet_vmul_avx512(x.data(), mask_add.data(), mask_sub.data(),
+                        scale_x.data(), scale_y.data(),
+                        input_size, output_size, out_ref.data());
+    } else {
+        std::cout << "Running non-AVX-512 version" << std::endl;
+
+        std::vector<int8_t> mask_add(output_size * input_size);
+        std::vector<int8_t> mask_sub(output_size * input_size);
+
+        for (size_t i = 0; i < mask_add.size(); ++i) {
+            mask_add[i] = int8_dist(gen) >= 0 ? -1 : 0;
+            mask_sub[i] = int8_dist(gen) >= 0 ? -1 : 0;
+        }
+
+        bitnet_vmul_simd_unrolled(x.data(), mask_add.data(), mask_sub.data(),
+                    scale_x.data(), scale_y.data(),
+                    input_size, output_size, out_simd.data());
+
+        bitnet_vmul_ref(x.data(), mask_add.data(), mask_sub.data(),
+                        scale_x.data(), scale_y.data(),
+                        input_size, output_size, out_ref.data());
+    }
 
     for (size_t i = 0; i < output_size; ++i) {
         double delta = std::abs(out_simd[i] - out_ref[i]);
