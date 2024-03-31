@@ -2,117 +2,150 @@
 #include "tools.h"
 
 #include <immintrin.h>
+#include <cassert>
 
-void subtract_masked_arrays_2d(const int8_t* x, const int8_t* mask_a_, const int8_t* mask_b_, int8_t* out, size_t input_size, size_t output_size) {
-    __m256i* mask_a = (__m256i*)mask_a_;
-    __m256i* mask_b = (__m256i*)mask_b_;
+void bitnet_vmul_simd_unrolled(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
+                               const float* scale_x, const float* scale_y,
+                               size_t input_size, size_t output_size, float* output) {
+    assert(input_size % 32 == 0);
+    assert(output_size % 2 == 0);  // Ensure output_size is even
 
-    const size_t simd_width = 32;
-    size_t i = 0;
+    for (size_t i = 0; i < output_size; i += 2) {
+        float out_row1 = 0.0f;
+        float out_row2 = 0.0f;
+        const float* row_scale1 = scale_y + i * (input_size / 32);
+        const float* row_scale2 = scale_y + (i + 1) * (input_size / 32);
+        const int8_t* row_add1 = mask_add + i * input_size;
+        const int8_t* row_add2 = mask_add + (i + 1) * input_size;
+        const int8_t* row_sub1 = mask_sub + i * input_size;
+        const int8_t* row_sub2 = mask_sub + (i + 1) * input_size;
 
-    static_assert(BITNET_CPU_ALIGNMENT % sizeof(__m256i) == 0, "BITNET_CPU_ALIGNMENT must be a multiple of the size of __m256i");
-    static_assert(simd_width == sizeof(__m256i) / sizeof(int8_t), "simd_width must be equal to the size of __m256i");
+        for (size_t j = 0; j < input_size; j += 32) {
+            int block_index = j / 32;
+            __m256i mask_add_block1 = _mm256_loadu_si256((__m256i*)(row_add1 + j));
+            __m256i mask_add_block2 = _mm256_loadu_si256((__m256i*)(row_add2 + j));
+            __m256i mask_sub_block1 = _mm256_loadu_si256((__m256i*)(row_sub1 + j));
+            __m256i mask_sub_block2 = _mm256_loadu_si256((__m256i*)(row_sub2 + j));
 
-    for (; i + simd_width * 4 <= output_size; i += simd_width * 4) {
-        __m256i result_vec_0 = _mm256_setzero_si256();
-        __m256i result_vec_1 = _mm256_setzero_si256();
-        __m256i result_vec_2 = _mm256_setzero_si256();
-        __m256i result_vec_3 = _mm256_setzero_si256();
+            __m256i x_block = _mm256_loadu_si256((__m256i*)(x + j));
 
-        for (size_t j = 0; j < input_size; j += simd_width) {
-            __m256i x_vec = _mm256_load_si256((__m256i*)(x + j));
-            __m256i mask_a_vec_0 = _mm256_load_si256(mask_a + (i + 0 * simd_width) * input_size / simd_width + j / simd_width);
-            __m256i mask_a_vec_1 = _mm256_load_si256(mask_a + (i + 1 * simd_width) * input_size / simd_width + j / simd_width);
-            __m256i mask_a_vec_2 = _mm256_load_si256(mask_a + (i + 2 * simd_width) * input_size / simd_width + j / simd_width);
-            __m256i mask_a_vec_3 = _mm256_load_si256(mask_a + (i + 3 * simd_width) * input_size / simd_width + j / simd_width);
-            __m256i mask_b_vec_0 = _mm256_load_si256(mask_b + (i + 0 * simd_width) * input_size / simd_width + j / simd_width);
-            __m256i mask_b_vec_1 = _mm256_load_si256(mask_b + (i + 1 * simd_width) * input_size / simd_width + j / simd_width);
-            __m256i mask_b_vec_2 = _mm256_load_si256(mask_b + (i + 2 * simd_width) * input_size / simd_width + j / simd_width);
-            __m256i mask_b_vec_3 = _mm256_load_si256(mask_b + (i + 3 * simd_width) * input_size / simd_width + j / simd_width);
+            __m256i temp_add1 = _mm256_and_si256(x_block, mask_add_block1);
+            __m256i temp_add2 = _mm256_and_si256(x_block, mask_add_block2);
+            __m256i temp_sub1 = _mm256_and_si256(x_block, mask_sub_block1);
+            __m256i temp_sub2 = _mm256_and_si256(x_block, mask_sub_block2);
 
-            __m256i masked_a_vec_0 = _mm256_and_si256(x_vec, mask_a_vec_0);
-            __m256i masked_a_vec_1 = _mm256_and_si256(x_vec, mask_a_vec_1);
-            __m256i masked_a_vec_2 = _mm256_and_si256(x_vec, mask_a_vec_2);
-            __m256i masked_a_vec_3 = _mm256_and_si256(x_vec, mask_a_vec_3);
-            __m256i masked_b_vec_0 = _mm256_and_si256(x_vec, mask_b_vec_0);
-            __m256i masked_b_vec_1 = _mm256_and_si256(x_vec, mask_b_vec_1);
-            __m256i masked_b_vec_2 = _mm256_and_si256(x_vec, mask_b_vec_2);
-            __m256i masked_b_vec_3 = _mm256_and_si256(x_vec, mask_b_vec_3);
+            __m256i add_lo1 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_add1));
+            __m256i add_hi1 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_add1, 1));
+            __m256i add_lo2 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_add2));
+            __m256i add_hi2 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_add2, 1));
 
-            result_vec_0 = _mm256_sub_epi8(result_vec_0, _mm256_sub_epi8(masked_a_vec_0, masked_b_vec_0));
-            result_vec_1 = _mm256_sub_epi8(result_vec_1, _mm256_sub_epi8(masked_a_vec_1, masked_b_vec_1));
-            result_vec_2 = _mm256_sub_epi8(result_vec_2, _mm256_sub_epi8(masked_a_vec_2, masked_b_vec_2));
-            result_vec_3 = _mm256_sub_epi8(result_vec_3, _mm256_sub_epi8(masked_a_vec_3, masked_b_vec_3));
+            __m256i sub_lo1 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_sub1));
+            __m256i sub_hi1 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_sub1, 1));
+            __m256i sub_lo2 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_sub2));
+            __m256i sub_hi2 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_sub2, 1));
+
+            __m256i add_sum1 = _mm256_add_epi16(add_lo1, add_hi1);
+            __m256i add_sum2 = _mm256_add_epi16(add_lo2, add_hi2);
+            __m256i sub_sum1 = _mm256_add_epi16(sub_lo1, sub_hi1);
+            __m256i sub_sum2 = _mm256_add_epi16(sub_lo2, sub_hi2);
+
+            __m256i sum1 = _mm256_sub_epi16(add_sum1, sub_sum1);
+            __m256i sum2 = _mm256_sub_epi16(add_sum2, sub_sum2);
+
+            sum1 = _mm256_hadd_epi16(sum1, sum1);
+            sum1 = _mm256_hadd_epi16(sum1, sum1);
+            sum1 = _mm256_hadd_epi16(sum1, sum1);
+
+            sum2 = _mm256_hadd_epi16(sum2, sum2);
+            sum2 = _mm256_hadd_epi16(sum2, sum2);
+            sum2 = _mm256_hadd_epi16(sum2, sum2);
+
+            int y1 = static_cast<int16_t>(_mm256_extract_epi16(sum1, 0)) +
+                     static_cast<int16_t>(_mm256_extract_epi16(sum1, 8));
+            int y2 = static_cast<int16_t>(_mm256_extract_epi16(sum2, 0)) +
+                     static_cast<int16_t>(_mm256_extract_epi16(sum2, 8));
+
+            out_row1 += scale_x[block_index] * row_scale1[block_index] * y1;
+            out_row2 += scale_x[block_index] * row_scale2[block_index] * y2;
         }
 
-        _mm256_stream_si256((__m256i*)(out + i + 0 * simd_width), result_vec_0);
-        _mm256_stream_si256((__m256i*)(out + i + 1 * simd_width), result_vec_1);
-        _mm256_stream_si256((__m256i*)(out + i + 2 * simd_width), result_vec_2);
-        _mm256_stream_si256((__m256i*)(out + i + 3 * simd_width), result_vec_3);
-    }
-
-    for (; i + simd_width <= output_size; i += simd_width) {
-        __m256i result_vec = _mm256_setzero_si256();
-
-        for (size_t j = 0; j < input_size; j += simd_width) {
-            __m256i x_vec = _mm256_load_si256((__m256i*)(x + j));
-            __m256i mask_a_vec = _mm256_load_si256(mask_a + i * input_size / simd_width + j / simd_width);
-            __m256i mask_b_vec = _mm256_load_si256(mask_b + i * input_size / simd_width + j / simd_width);
-
-            __m256i masked_a_vec = _mm256_and_si256(x_vec, mask_a_vec);
-            __m256i masked_b_vec = _mm256_and_si256(x_vec, mask_b_vec);
-
-            result_vec = _mm256_sub_epi8(result_vec, _mm256_sub_epi8(masked_a_vec, masked_b_vec));
-        }
-
-        _mm256_store_si256((__m256i*)(out + i), result_vec);
-    }
-
-    for (; i < output_size; ++i) {
-        int32_t result = 0;
-        for (size_t j = 0; j < input_size; ++j) {
-            result += (x[j] & mask_a_[i * input_size + j]) - (x[j] & mask_b_[i * input_size + j]);
-        }
-        out[i] = static_cast<int8_t>(result);
+        output[i] = out_row1;
+        output[i + 1] = out_row2;
     }
 }
 
-void subtract_masked_arrays(const int8_t* x, const int8_t* mask_a_, const int8_t* mask_b_, int8_t* out, size_t size) {
-    __m256i* mask_a = (__m256i*)mask_a_;
-    __m256i* mask_b = (__m256i*)mask_b_;
+void bitnet_vmul_simd(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
+                      const float* scale_x, const float* scale_y,
+                      size_t input_size, size_t output_size, float* output) {
+    assert(input_size % 32 == 0);
 
-    // Process the input array in chunks of 32 elements
-    const size_t simd_width = 32;  // AVX2 processes 32 int8_t elements at a time
-    size_t i = 0;
+    for (size_t i = 0; i < output_size; ++i) {
+        float out_row = 0.0f;
+        const float* row_scale = scale_y + i * (input_size / 32);
+        const int8_t* row_add = mask_add + i * input_size;
+        const int8_t* row_sub = mask_sub + i * input_size;
 
-    static_assert(BITNET_CPU_ALIGNMENT % sizeof(__m256i) == 0, "BITNET_CPU_ALIGNMENT must be a multiple of the size of __m256i");
-    static_assert(simd_width == sizeof(__m256i) / sizeof(int8_t), "simd_width must be equal to the size of __m256i");
+        for (size_t j = 0; j < input_size; j += 32) {
+            int block_index = j / 32;
+            __m256i mask_add_block = _mm256_loadu_si256((__m256i*)(row_add + j));
+            __m256i mask_sub_block = _mm256_loadu_si256((__m256i*)(row_sub + j));
 
-    for (; i + simd_width * 4 <= size; i += simd_width * 4) {
-        // Process 4 AVX2 vectors per iteration
-        for (int j = 0; j < 4; ++j) {
-            __m256i x_vec = _mm256_load_si256((__m256i*)(x + i + j * simd_width));
-            __m256i mask_a_vec = _mm256_load_si256(mask_a + (i + j * simd_width) / simd_width);
-            __m256i mask_b_vec = _mm256_load_si256(mask_b + (i + j * simd_width) / simd_width);
-            __m256i masked_a_vec = _mm256_and_si256(x_vec, mask_a_vec);
-            __m256i masked_b_vec = _mm256_and_si256(x_vec, mask_b_vec);
-            __m256i result_vec = _mm256_sub_epi8(masked_a_vec, masked_b_vec);
-            _mm256_stream_si256((__m256i*)(out + i + j * simd_width), result_vec);
+            __m256i x_block = _mm256_loadu_si256((__m256i*)(x + j));
+
+            __m256i temp_add = _mm256_and_si256(x_block, mask_add_block);
+            __m256i temp_sub = _mm256_and_si256(x_block, mask_sub_block);
+
+            __m256i add_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_add));
+            __m256i add_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_add, 1));
+
+            __m256i sub_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_sub));
+            __m256i sub_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_sub, 1));
+
+            __m256i add_sum = _mm256_add_epi16(add_lo, add_hi);
+            __m256i sub_sum = _mm256_add_epi16(sub_lo, sub_hi);
+
+            __m256i sum = _mm256_sub_epi16(add_sum, sub_sum); 
+
+            sum = _mm256_hadd_epi16(sum, sum);
+            sum = _mm256_hadd_epi16(sum, sum);
+            sum = _mm256_hadd_epi16(sum, sum);
+            int y = static_cast<int16_t>( _mm256_extract_epi16(sum, 0) ) + static_cast<int16_t>( _mm256_extract_epi16(sum, 8) );
+
+            out_row += scale_x[block_index] * row_scale[block_index] * y;
         }
-    }
 
-    for (; i + simd_width <= size; i += simd_width) {
-        __m256i x_vec = _mm256_load_si256((__m256i*)(x + i));
-        __m256i mask_a_vec = _mm256_load_si256(mask_a + i / simd_width);
-        __m256i mask_b_vec = _mm256_load_si256(mask_b + i / simd_width);
-        __m256i masked_a_vec = _mm256_and_si256(x_vec, mask_a_vec);
-        __m256i masked_b_vec = _mm256_and_si256(x_vec, mask_b_vec);
-        __m256i result_vec = _mm256_sub_epi8(masked_a_vec, masked_b_vec);
-        _mm256_store_si256((__m256i*)(out + i), result_vec);
+        output[i] = out_row;
     }
+}
 
-    // Process the remaining elements (if any) using scalar operations
-    for (; i < size; ++i) {
-        out[i] = (x[i] & (mask_a_)[i]) - (x[i] & (mask_b_)[i]);
+void bitnet_vmul_ref(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
+                     const float* scale_x, const float* scale_y,
+                     size_t input_size, size_t output_size, float* output) {
+    assert(input_size % 32 == 0);
+
+    for (size_t i = 0; i < output_size; ++i) {
+        float out_row = 0.0f;
+        const float* row_scale = scale_y + i * (input_size / 32);
+        const int8_t* row_add = mask_add + i * input_size;
+        const int8_t* row_sub = mask_sub + i * input_size;
+
+        for (size_t j = 0; j < input_size; j += 32) {
+            int block_index = j / 32;
+
+            int32_t temp = 0;
+            for (size_t k = 0; k < 32; ++k) {
+                size_t index = j + k;
+                int8_t x_val = x[index];
+
+                int y = static_cast<int16_t>(x_val & row_add[index]) - 
+                        static_cast<int16_t>(x_val & row_sub[index]);
+
+                temp += y;
+            }
+
+            out_row += scale_x[block_index] * row_scale[block_index] * temp;
+        }
+
+        output[i] = out_row;
     }
 }

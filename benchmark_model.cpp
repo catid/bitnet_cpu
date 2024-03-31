@@ -1,9 +1,9 @@
 #include <iostream>
 #include <chrono>
 #include <random>
-#include <immintrin.h>
 #include <vector>
 #include <utility>
+
 #include "math_functions.h"
 #include "tools.h"
 
@@ -196,39 +196,59 @@ std::vector<std::pair<size_t, size_t>> ModelWeightSizes = {
 const size_t NUM_BENCHMARK_ITERATIONS = 100;
 
 int main() {
-    // Preallocate input vectors and output buffers
+
+    std::cout << "Preallocating buffers..." << std::endl;
+
+    // Preallocate input vectors, mask vectors, scale vectors, and output buffers
     std::vector<int8_t*> input_vectors;
-    std::vector<int8_t*> mask_a_vectors;
-    std::vector<int8_t*> mask_b_vectors;
-    std::vector<int8_t*> output_buffers;
+    std::vector<int8_t*> mask_add_vectors;
+    std::vector<int8_t*> mask_sub_vectors;
+    std::vector<float*> scale_x_vectors;
+    std::vector<float*> scale_y_vectors;
+    std::vector<float*> output_buffers;
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dist(-128, 127);
+    std::uniform_int_distribution<int> int8_dist(-128, 127);
+    std::uniform_real_distribution<float> float_dist(0.1f, 20.0f);
 
     for (const auto& tensor_size : ModelWeightSizes) {
         size_t input_size = tensor_size.first;
         size_t output_size = tensor_size.second;
 
         int8_t* input_vector = allocate_aligned_buffer<int8_t>(input_size);
-        int8_t* mask_a_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
-        int8_t* mask_b_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
-        int8_t* output_buffer = allocate_aligned_buffer<int8_t>(output_size);
+        int8_t* mask_add_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
+        int8_t* mask_sub_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
+        float* scale_x_vector = allocate_aligned_buffer<float>(input_size / 32);
+        float* scale_y_vector = allocate_aligned_buffer<float>(input_size * output_size / 32);
+        float* output_buffer = allocate_aligned_buffer<float>(output_size);
 
         for (size_t i = 0; i < input_size; ++i) {
-            input_vector[i] = static_cast<int8_t>(dist(gen));
+            input_vector[i] = static_cast<int8_t>(int8_dist(gen));
         }
 
         for (size_t i = 0; i < output_size * input_size; ++i) {
-            mask_a_vector[i] = static_cast<int8_t>(dist(gen));
-            mask_b_vector[i] = static_cast<int8_t>(dist(gen));
+            mask_add_vector[i] = static_cast<int8_t>(int8_dist(gen) >= 0 ? -1 : 0);
+            mask_sub_vector[i] = static_cast<int8_t>(int8_dist(gen) >= 0 ? -1 : 0);
+        }
+
+        for (size_t i = 0; i < input_size / 32; ++i) {
+            scale_x_vector[i] = float_dist(gen);
+        }
+
+        for (size_t i = 0; i < input_size * output_size / 32; ++i) {
+            scale_y_vector[i] = float_dist(gen);
         }
 
         input_vectors.push_back(input_vector);
-        mask_a_vectors.push_back(mask_a_vector);
-        mask_b_vectors.push_back(mask_b_vector);
+        mask_add_vectors.push_back(mask_add_vector);
+        mask_sub_vectors.push_back(mask_sub_vector);
+        scale_x_vectors.push_back(scale_x_vector);
+        scale_y_vectors.push_back(scale_y_vector);
         output_buffers.push_back(output_buffer);
     }
+
+    std::cout << "Bencharking model..." << std::endl;
 
     // Benchmark iterations
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -236,8 +256,9 @@ int main() {
         for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
             size_t input_size = ModelWeightSizes[j].first;
             size_t output_size = ModelWeightSizes[j].second;
-            subtract_masked_arrays_2d(input_vectors[j], mask_a_vectors[j], mask_b_vectors[j],
-                                      output_buffers[j], input_size, output_size);
+            bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+                                      scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                                      output_buffers[j]);
         }
     }
     auto end_time = std::chrono::high_resolution_clock::now();
@@ -255,8 +276,10 @@ int main() {
     // Free allocated buffers
     for (size_t i = 0; i < ModelWeightSizes.size(); ++i) {
         free_aligned_buffer(input_vectors[i]);
-        free_aligned_buffer(mask_a_vectors[i]);
-        free_aligned_buffer(mask_b_vectors[i]);
+        free_aligned_buffer(mask_add_vectors[i]);
+        free_aligned_buffer(mask_sub_vectors[i]);
+        free_aligned_buffer(scale_x_vectors[i]);
+        free_aligned_buffer(scale_y_vectors[i]);
         free_aligned_buffer(output_buffers[i]);
     }
 

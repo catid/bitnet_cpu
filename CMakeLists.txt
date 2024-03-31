@@ -15,13 +15,12 @@ add_library(bitnet_cpu STATIC
 target_include_directories(bitnet_cpu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 install(TARGETS bitnet_cpu DESTINATION bin)
 
-add_executable(benchmark_single benchmark_single.cpp)
-target_link_libraries(benchmark_single bitnet_cpu)
-target_compile_options(benchmark_single PRIVATE -O3)
-install(TARGETS benchmark_single DESTINATION bin)
-
-add_executable(benchmark_model benchmark_model.cpp)
-target_link_libraries(benchmark_model bitnet_cpu)
+add_executable(benchmark_model
+    benchmark_model.cpp
+)
+target_link_libraries(benchmark_model
+    bitnet_cpu
+)
 target_compile_options(benchmark_model PRIVATE -O3)
 install(TARGETS benchmark_model DESTINATION bin)
 
