@@ -8,6 +8,8 @@ I'm not really interested in niche use cases like this, so I'll let someone else
 
 Without those intrinsics, it takes about ~1.5 seconds to run through all the heavy layers of the model.  If this was properly parallelized, you might be able to achieve a speedup of 16x or so.  So let's say the best we could do is about 8 tokens per second with this type of model.
 
+Also to achieve this performance you have to use 16 bits per weight, so it does not have size advantages over normal models either despite being ternary.
+
 ```
 (base) ➜  build git:(master) ./benchmark_model
 Preallocating buffers...
