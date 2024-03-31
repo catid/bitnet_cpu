@@ -250,13 +250,29 @@ int main() {
 
     std::cout << "Benchmarking model..." << std::endl;
 
+    const int warmup_iterations = 2;
+    {
+        for (size_t i = 0; i < warmup_iterations; ++i) {
+            auto start_time = std::chrono::high_resolution_clock::now();
+            for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
+                size_t input_size = ModelWeightSizes[j].first;
+                size_t output_size = ModelWeightSizes[j].second;
+                bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+                                        scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                                        output_buffers[j]);
+            }
+            auto end_time = std::chrono::high_resolution_clock::now();
+            std::cout << "Warmup iteration " << i + 1 << " took " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " milliseconds" << std::endl;
+        }
+    }
+
     // Benchmark iterations
     auto start_time = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < NUM_BENCHMARK_ITERATIONS; ++i) {
         for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
             size_t input_size = ModelWeightSizes[j].first;
             size_t output_size = ModelWeightSizes[j].second;
-            bitnet_vmul_simd(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+            bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
                                       scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
                                       output_buffers[j]);
         }
