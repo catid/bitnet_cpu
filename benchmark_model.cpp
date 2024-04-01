@@ -4,6 +4,8 @@
 #include <vector>
 #include <utility>
 
+#include <omp.h>
+
 #include "math_functions.h"
 #include "tools.h"
 
@@ -277,6 +279,7 @@ int main() {
         // Benchmark iterations
         auto start_time = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i < NUM_BENCHMARK_ITERATIONS; ++i) {
+            #pragma omp parallel for
             for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
                 size_t input_size = ModelWeightSizes[j].first;
                 size_t output_size = ModelWeightSizes[j].second;
