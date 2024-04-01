@@ -15,8 +15,19 @@ cd bitnet_cpu
 mkdir build
 cd build
 cmake ..
+```
+
+### Linux build:
+
+```bash
 make -j
 ```
+
+### Windows Visual Studio 2022 build:
+
+Open the .sln file in the ./build/ folder
+
+Select Release mode and build!
 
 ## CPU Approach 1: AVX-512
 
