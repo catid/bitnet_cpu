@@ -254,6 +254,7 @@ int main() {
 
     if (CpuSupportsAVX512())
     {
+        // FIXME: Use new version
         {
             auto start_time = std::chrono::high_resolution_clock::now();
             for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {

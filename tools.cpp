@@ -19,7 +19,7 @@ void free_aligned_buffer(void* ptr) {
 template int8_t* allocate_aligned_buffer<int8_t>(size_t size);
 template float* allocate_aligned_buffer<float>(size_t size);
 
-#if defined(__AVX512BW__) && defined(__AVX512VL__)
+#ifdef ENABLE_AVX512_BUILD
 
 bool CpuSupportsAVX512()
 {
@@ -45,11 +45,11 @@ bool CpuSupportsAVX512()
     return avx512FSupported && avx512BWSupported && avx512VLSupported;
 }
 
-#else // AVX512
+#else // ENABLE_AVX512_BUILD
 
 bool CpuSupportsAVX512()
 {
     return false;
 }
 
-#endif // AVX512
+#endif // ENABLE_AVX512_BUILD
