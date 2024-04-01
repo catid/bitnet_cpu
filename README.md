@@ -20,9 +20,7 @@ make -j
 
 ## CPU Approach 1: AVX-512
 
-The best SIMD intrinsics for this do not exist on most Intel computers, but you can use AVX512 _mm256_mask_add_epi16() and _mm256_mask_sub_epi16() on Intel servers to speed this up a lot.  With those intrinsics, the weights can be 2 bits per parameter, and the model might be competitive for memory/compute efficiency.  I optimized and tested an AVX-512 version, results below.
-
-I optimized the reference inference kernel using AVX-512 on a rented Intel Xeon W-2295.  This is using OMP for multi-thread optimization, and some careful unrolling for pipeline parallelism.
+The best SIMD intrinsics for this do not exist on most Intel computers, but you can use AVX512 _mm256_mask_add_epi16() and _mm256_mask_sub_epi16() on Intel servers to speed this up a lot.  With those intrinsics, the weights can be 2 bits per parameter, and the model might be competitive for memory/compute efficiency.  I optimized the reference inference kernel using AVX-512 on a rented Intel Xeon W-2295.  This is using OMP for multi-thread optimization, and some careful unrolling for pipeline parallelism.
 
 ```bash
 catid@project512:~/sources/bitnet_cpu/build$ ./tests/math_test 
