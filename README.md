@@ -55,6 +55,10 @@ Running on an 12th Gen Intel(R) Core(TM) i9-12900K with 20 threads:
 ```
 (base) ➜  build git:(master) ✗ ./tests/math_test
 Running non-AVX-512 version
+Test case 1 passed!
+Test case 2 passed!
+Test case 3 passed!
+Test case 4 passed!
 Tests passed!
 
 (base) ➜  build git:(master) ✗ ./benchmark_model
