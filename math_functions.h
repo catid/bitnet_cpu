@@ -37,10 +37,14 @@ void bitnet_vmul_avx512(const int8_t* x, const uint64_t* mask_add, const uint64_
                                const float* scale_x, float out_scale,
                                size_t input_size, size_t output_size, float* output);
 
+void bitnet_vmul_avx512_unroll(const int8_t* x, const uint64_t* mask_add, const uint64_t* mask_sub,
+                               const float* scale_x, float out_scale,
+                               size_t input_size, size_t output_size, float* output);
+
 static inline void bitnet_vmul_avx512_opt(const int8_t* x, const uint64_t* mask_add, const uint64_t* mask_sub,
                                const float* scale_x, float out_scale,
                                size_t input_size, size_t output_size, float* output) {
-    bitnet_vmul_avx512(x, mask_add, mask_sub, scale_x, out_scale, input_size, output_size, output);
+    bitnet_vmul_avx512_unroll(x, mask_add, mask_sub, scale_x, out_scale, input_size, output_size, output);
 }
 
 #endif // ENABLE_AVX512_BUILD

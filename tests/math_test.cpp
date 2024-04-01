@@ -188,7 +188,7 @@ bool random_unit_test_avx512() {
     for (size_t i = 0; i < output_size; ++i) {
         double delta = std::abs(out_simd[i] - out_ref[i]);
         if (delta > 1e-5) {
-            std::cout << "Error at output index " << i << ": " << out_simd[i] << " vs " << out_ref[i] << std::endl;
+            std::cout << "Error at output index " << i << ": " << out_simd[i] << " vs " << out_ref[i] << ": delta=" << delta << std::endl;
             return false;
         }
     }

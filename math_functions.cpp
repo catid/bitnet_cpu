@@ -155,7 +155,7 @@ void bitnet_vmul_avx512_ref(const int8_t* x, const uint64_t* mask_add, const uin
     assert(input_size % 64 == 0);
 
     for (size_t i = 0; i < output_size; ++i) {
-        float out_row = 0.0f;
+        double out_row = 0.0;
 
         for (size_t j = 0; j < input_size; j += 64) {
             const uint64_t ma = mask_add[j / 64];
@@ -172,10 +172,10 @@ void bitnet_vmul_avx512_ref(const int8_t* x, const uint64_t* mask_add, const uin
                 temp += y;
             }
 
-            out_row += scale_x[j / 256] * out_scale * temp;
+            out_row += (double)scale_x[j / 256] * temp;
         }
 
-        output[i] = out_row;
+        output[i] = out_row * out_scale;
 
         mask_add += input_size / 64;
         mask_sub += input_size / 64;
@@ -207,7 +207,7 @@ void bitnet_vmul_avx512(const int8_t* x, const uint64_t* mask_add, const uint64_
     assert(input_size % 64 == 0);
 
     for (size_t i = 0; i < output_size; ++i) {
-        float out_row = 0.0f;
+        double out_row = 0.0;
 
         for (size_t j = 0; j < input_size; j += 64) {
             const uint64_t ma = mask_add[j / 64];
@@ -226,10 +226,105 @@ void bitnet_vmul_avx512(const int8_t* x, const uint64_t* mask_add, const uint64_
             __m256i reduce = _mm256_add_epi16(_mm512_extracti64x4_epi64(sum, 0), _mm512_extracti64x4_epi64(sum, 1));
             int y = mm256_reduce_add_epi16(reduce);
 
-            out_row += scale_x[j / 256] * out_scale * y;
+            out_row += (double)scale_x[j / 256] * y;
         }
 
-        output[i] = out_row;
+        output[i] = out_row * out_scale;
+
+        mask_add += input_size / 64;
+        mask_sub += input_size / 64;
+    }
+}
+
+void bitnet_vmul_avx512_unroll(const int8_t* x, const uint64_t* mask_add, const uint64_t* mask_sub,
+                               const float* scale_x, float out_scale,
+                               size_t input_size, size_t output_size, float* output)
+{
+    assert(input_size % 64 == 0);
+
+    for (int i = 0; i < output_size; ++i) {
+        double row_sum = 0.0;
+
+        const int blocks = input_size / 256;
+        for (int j = 0; j < blocks; ++j) {
+            const uint64_t ma0 = mask_add[j * 4 + 0];
+            const uint64_t ma1 = mask_add[j * 4 + 1];
+            const uint64_t ma2 = mask_add[j * 4 + 2];
+            const uint64_t ma3 = mask_add[j * 4 + 3];
+
+            const uint64_t ms0 = mask_sub[j * 4 + 0];
+            const uint64_t ms1 = mask_sub[j * 4 + 1];
+            const uint64_t ms2 = mask_sub[j * 4 + 2];
+            const uint64_t ms3 = mask_sub[j * 4 + 3];
+
+            __m512i x0 = _mm512_loadu_epi8(x + j * 256);
+            __m512i x1 = _mm512_loadu_epi8(x + j * 256 + 64);
+            __m512i x2 = _mm512_loadu_epi8(x + j * 256 + 128);
+            __m512i x3 = _mm512_loadu_epi8(x + j * 256 + 192);
+
+            __m512i x0lo = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x0, 0));
+            __m512i x1lo = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x1, 0));
+            __m512i x2lo = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x2, 0));
+            __m512i x3lo = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x3, 0));
+
+            x0 = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x0, 1));
+            x1 = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x1, 1));
+            x2 = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x2, 1));
+            x3 = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x3, 1));
+
+            __m512i s0 = _mm512_setzero_si512();
+            __m512i s1 = _mm512_setzero_si512();
+            __m512i s2 = _mm512_setzero_si512();
+            __m512i s3 = _mm512_setzero_si512();
+
+            s0 = _mm512_mask_add_epi16(s0, (__mmask32)ma0, s0, x0lo);
+            s1 = _mm512_mask_add_epi16(s1, (__mmask32)ma1, s1, x1lo);
+            s2 = _mm512_mask_add_epi16(s2, (__mmask32)ma2, s2, x2lo);
+            s3 = _mm512_mask_add_epi16(s3, (__mmask32)ma3, s3, x3lo);
+
+            s0 = _mm512_mask_add_epi16(s0, (__mmask32)(ma0 >> 32), s0, x0);
+            s1 = _mm512_mask_add_epi16(s1, (__mmask32)(ma1 >> 32), s1, x1);
+            s2 = _mm512_mask_add_epi16(s2, (__mmask32)(ma2 >> 32), s2, x2);
+            s3 = _mm512_mask_add_epi16(s3, (__mmask32)(ma3 >> 32), s3, x3);
+
+            s0 = _mm512_mask_sub_epi16(s0, (__mmask32)ms0, s0, x0lo);
+            s1 = _mm512_mask_sub_epi16(s1, (__mmask32)ms1, s1, x1lo);
+            s2 = _mm512_mask_sub_epi16(s2, (__mmask32)ms2, s2, x2lo);
+            s3 = _mm512_mask_sub_epi16(s3, (__mmask32)ms3, s3, x3lo);
+
+            s0 = _mm512_mask_sub_epi16(s0, (__mmask32)(ms0 >> 32), s0, x0);
+            s1 = _mm512_mask_sub_epi16(s1, (__mmask32)(ms1 >> 32), s1, x1);
+            s2 = _mm512_mask_sub_epi16(s2, (__mmask32)(ms2 >> 32), s2, x2);
+            s3 = _mm512_mask_sub_epi16(s3, (__mmask32)(ms3 >> 32), s3, x3);
+
+            s0 = _mm512_add_epi16(s0, s1);
+            s2 = _mm512_add_epi16(s2, s3);
+            s0 = _mm512_add_epi16(s0, s2);
+
+            __m256i reduce = _mm256_add_epi16(_mm512_extracti64x4_epi64(s0, 0), _mm512_extracti64x4_epi64(s0, 1));
+            int y = mm256_reduce_add_epi16(reduce);
+            row_sum += (double)scale_x[j] * y;
+        }
+
+        for (size_t j = blocks * 256; j < input_size; j += 64) {
+            const uint64_t ma = mask_add[j / 64];
+            const uint64_t ms = mask_sub[j / 64];
+
+            __m512i x_block = _mm512_loadu_epi8(x + j);
+            __m512i x_lo = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x_block, 0));
+            __m512i x_hi = _mm512_cvtepi8_epi16(_mm512_extracti64x4_epi64(x_block, 1));
+
+            __m512i sum = _mm512_setzero_si512();
+            sum = _mm512_mask_add_epi16(sum, (__mmask32)ma, sum, x_lo);
+            sum = _mm512_mask_sub_epi16(sum, (__mmask32)ms, sum, x_lo);
+            sum = _mm512_mask_add_epi16(sum, (__mmask32)(ma >> 32), sum, x_hi);
+            sum = _mm512_mask_sub_epi16(sum, (__mmask32)(ms >> 32), sum, x_hi);
+
+            __m256i reduce = _mm256_add_epi16(_mm512_extracti64x4_epi64(sum, 0), _mm512_extracti64x4_epi64(sum, 1));
+            int y = mm256_reduce_add_epi16(reduce);
+            row_sum += (double)scale_x[j / 256] * y;
+        }
+        output[i] = row_sum * out_scale;
 
         mask_add += input_size / 64;
         mask_sub += input_size / 64;
