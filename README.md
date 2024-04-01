@@ -72,3 +72,8 @@ We are getting about 1000/35 = ~28 tokens per second on most Intel CPUs with AVX
 ## CPU Approach 3: LOL
 
 I also tried converting the model weights to C++ code, which was kind of funny.  I put the results in the `lol_bitnet_to_cpp` folder.  This experiment obviously failed: The C++ files are 200 MB and the compiler takes more than 10 hours to compile each one.
+
+## Thanks
+
+@lithium0003 on Github suggested using the _mm256_sign_epi8() intrinsic to greatly speed up the AVX2 version.
+
