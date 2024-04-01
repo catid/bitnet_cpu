@@ -6,8 +6,6 @@
 
 #include <immintrin.h>
 
-#ifdef ENABLE_AVX512_BUILD
-
 static int16_t mm256_reduce_add_epi16(__m256i ymm0) {
     __m128i xmm0 = _mm256_extracti128_si256(ymm0, 0);
     __m128i xmm1 = _mm256_extracti128_si256(ymm0, 1);
@@ -27,11 +25,6 @@ static int16_t mm256_reduce_add_epi16(__m256i ymm0) {
 }
 
 bool test_mm256_reduce_add_epi16() {
-    if (!CpuSupportsAVX512()) {
-        std::cout << "Skipping AVX-512 version because CPU does not support it" << std::endl;
-        return true;
-    }
-
     // Test case 1: AllOnes
     __m256i ymm0 = _mm256_set1_epi16(1);
     int16_t expected = 16;
@@ -78,8 +71,6 @@ bool test_mm256_reduce_add_epi16() {
 
     return true;
 }
-
-#endif // ENABLE_AVX512_BUILD
 
 bool random_unit_test() {
     const size_t input_size = 3200;
@@ -219,11 +210,11 @@ int main() {
         std::cout << "random_unit_test failed!" << std::endl;
         return -1;
     }
-#ifdef ENABLE_AVX512_BUILD
     if (!test_mm256_reduce_add_epi16()) {
         std::cout << "test_mm256_reduce_add_epi16 failed!" << std::endl;
         return -1;
     }
+#ifdef ENABLE_AVX512_BUILD
     if (!random_unit_test_avx512()) {
         std::cout << "random_unit_test_avx512 failed!" << std::endl;
         return -1;
