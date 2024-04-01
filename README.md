@@ -25,7 +25,9 @@ make -j
 
 ### Windows Visual Studio 2022 build:
 
-Open the .sln file in the ./build/ folder
+Follow the setup instructions using Git Bash: https://git-scm.com/
+
+Open the .sln file in the ./build/ folder.
 
 Select Release mode and build!
 
