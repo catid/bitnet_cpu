@@ -191,13 +191,9 @@ void bitnet_vmul_avx512(const int8_t* x, const uint64_t* mask_add, const uint64_
             sum = _mm512_mask_sub_epi16(sum, (__mmask32)ms, sum, x_lo);
             sum = _mm512_mask_add_epi16(sum, (__mmask32)(ma >> 32), sum, x_hi);
             sum = _mm512_mask_sub_epi16(sum, (__mmask32)(ms >> 32), sum, x_hi);
-#if 0
-            __m256i reduce = _mm256_add_epi16(_mm512_extracti64x4_epi64(sum, 0), _mm512_extracti64x4_epi64(sum, 1));
 
-            int y0 = _mm256_reduce_add_epi16(_mm512_extracti64x4_epi64(sum, 0))
-            int y1 = _mm256_reduce_add_epi16(_mm512_extracti64x4_epi64(sum, 1))
-#endif           
-            int y = 0; //y0 + y1;
+            __m256i reduce = _mm256_add_epi16(_mm512_extracti64x4_epi64(sum, 0), _mm512_extracti64x4_epi64(sum, 1));
+            int y = _mm256_reduce_add_epi16(reduce);
 
             out_row += scale_x[block_index] * row_scale[block_index] * y;
         }
