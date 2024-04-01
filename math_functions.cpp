@@ -259,21 +259,24 @@ void bitnet_vmul_avx512_unroll(const int8_t* x, const uint64_t* mask_add, const 
 {
     assert(input_size % 64 == 0);
 
-    #pragma omp parallel for num_threads(16)
+    #pragma omp parallel for num_threads(20)
     for (int i = 0; i < output_size; ++i) {
         double row_sum = 0.0;
 
+        const uint64_t* add_row = mask_add + i * input_size / 64;
+        const uint64_t* sub_row = mask_sub + i * input_size / 64;
+
         const int blocks = input_size / 256;
         for (int j = 0; j < blocks; ++j) {
-            const uint64_t ma0 = mask_add[j * 4 + 0];
-            const uint64_t ma1 = mask_add[j * 4 + 1];
-            const uint64_t ma2 = mask_add[j * 4 + 2];
-            const uint64_t ma3 = mask_add[j * 4 + 3];
+            const uint64_t ma0 = add_row[j * 4 + 0];
+            const uint64_t ma1 = add_row[j * 4 + 1];
+            const uint64_t ma2 = add_row[j * 4 + 2];
+            const uint64_t ma3 = add_row[j * 4 + 3];
 
-            const uint64_t ms0 = mask_sub[j * 4 + 0];
-            const uint64_t ms1 = mask_sub[j * 4 + 1];
-            const uint64_t ms2 = mask_sub[j * 4 + 2];
-            const uint64_t ms3 = mask_sub[j * 4 + 3];
+            const uint64_t ms0 = sub_row[j * 4 + 0];
+            const uint64_t ms1 = sub_row[j * 4 + 1];
+            const uint64_t ms2 = sub_row[j * 4 + 2];
+            const uint64_t ms3 = sub_row[j * 4 + 3];
 
             __m512i x0 = _mm512_loadu_epi8(x + j * 256);
             __m512i x1 = _mm512_loadu_epi8(x + j * 256 + 64);
@@ -343,9 +346,6 @@ void bitnet_vmul_avx512_unroll(const int8_t* x, const uint64_t* mask_add, const 
             row_sum += (double)scale_x[j / 256] * y;
         }
         output[i] = row_sum * out_scale;
-
-        mask_add += input_size / 64;
-        mask_sub += input_size / 64;
     }
 }
 
