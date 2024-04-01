@@ -203,8 +203,10 @@ int main() {
     std::vector<int8_t*> input_vectors;
     std::vector<int8_t*> mask_add_vectors;
     std::vector<int8_t*> mask_sub_vectors;
+    std::vector<uint64_t*> mask64_add_vectors;
+    std::vector<uint64_t*> mask64_sub_vectors;
     std::vector<float*> scale_x_vectors;
-    std::vector<float*> scale_y_vectors;
+    const float out_scale = 3.25f;
     std::vector<float*> output_buffers;
 
     std::random_device rd;
@@ -217,34 +219,39 @@ int main() {
         size_t output_size = tensor_size.second;
 
         int8_t* input_vector = allocate_aligned_buffer<int8_t>(input_size);
-        int8_t* mask_add_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
-        int8_t* mask_sub_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
         float* scale_x_vector = allocate_aligned_buffer<float>(input_size / 32);
-        float* scale_y_vector = allocate_aligned_buffer<float>(input_size * output_size / 32);
         float* output_buffer = allocate_aligned_buffer<float>(output_size);
 
         for (size_t i = 0; i < input_size; ++i) {
             input_vector[i] = static_cast<int8_t>(int8_dist(gen));
         }
 
-        for (size_t i = 0; i < output_size * input_size; ++i) {
-            mask_add_vector[i] = static_cast<int8_t>(int8_dist(gen) >= 0 ? -1 : 0);
-            mask_sub_vector[i] = static_cast<int8_t>(int8_dist(gen) >= 0 ? -1 : 0);
+        if (CpuSupportsAVX512()) {
+            uint64_t* mask64_add_vector = allocate_aligned_buffer<uint64_t>(output_size * input_size / 64);
+            uint64_t* mask64_sub_vector = allocate_aligned_buffer<uint64_t>(output_size * input_size / 64);
+            for (size_t i = 0; i < output_size * input_size / 64; ++i) {
+                mask64_add_vector[i] = gen();
+                mask64_sub_vector[i] = gen();
+            }
+            mask64_add_vectors.push_back(mask64_add_vector);
+            mask64_sub_vectors.push_back(mask64_sub_vector);
+        } else {
+            int8_t* mask_add_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
+            int8_t* mask_sub_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
+            for (size_t i = 0; i < output_size * input_size; ++i) {
+                mask_add_vector[i] = static_cast<int8_t>(int8_dist(gen) >= 0 ? -1 : 0);
+                mask_sub_vector[i] = static_cast<int8_t>(int8_dist(gen) >= 0 ? -1 : 0);
+            }
+            mask_add_vectors.push_back(mask_add_vector);
+            mask_sub_vectors.push_back(mask_sub_vector);
         }
 
         for (size_t i = 0; i < input_size / 32; ++i) {
             scale_x_vector[i] = float_dist(gen);
         }
 
-        for (size_t i = 0; i < input_size * output_size / 32; ++i) {
-            scale_y_vector[i] = float_dist(gen);
-        }
-
         input_vectors.push_back(input_vector);
-        mask_add_vectors.push_back(mask_add_vector);
-        mask_sub_vectors.push_back(mask_sub_vector);
         scale_x_vectors.push_back(scale_x_vector);
-        scale_y_vectors.push_back(scale_y_vector);
         output_buffers.push_back(output_buffer);
     }
 
@@ -254,18 +261,17 @@ int main() {
 
     if (CpuSupportsAVX512())
     {
-        // FIXME: Use new version
         {
             auto start_time = std::chrono::high_resolution_clock::now();
             for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
                 size_t input_size = ModelWeightSizes[j].first;
                 size_t output_size = ModelWeightSizes[j].second;
-                bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
-                                        scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                bitnet_vmul_avx512_opt(input_vectors[j], mask64_add_vectors[j], mask64_sub_vectors[j],
+                                        scale_x_vectors[j], out_scale, input_size, output_size,
                                         output_buffers[j]);
             }
             auto end_time = std::chrono::high_resolution_clock::now();
-            std::cout << "Warmup iteration " << i + 1 << " took " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " milliseconds" << std::endl;
+            std::cout << "Warmup took " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " milliseconds" << std::endl;
         }
 
         // Benchmark iterations
@@ -274,8 +280,8 @@ int main() {
             for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
                 size_t input_size = ModelWeightSizes[j].first;
                 size_t output_size = ModelWeightSizes[j].second;
-                bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
-                                        scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                bitnet_vmul_avx512_opt(input_vectors[j], mask64_add_vectors[j], mask64_sub_vectors[j],
+                                        scale_x_vectors[j], out_scale, input_size, output_size,
                                         output_buffers[j]);
             }
         }
@@ -293,11 +299,11 @@ int main() {
                 size_t input_size = ModelWeightSizes[j].first;
                 size_t output_size = ModelWeightSizes[j].second;
                 bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
-                                        scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                                        scale_x_vectors[j], out_scale, input_size, output_size,
                                         output_buffers[j]);
             }
             auto end_time = std::chrono::high_resolution_clock::now();
-            std::cout << "Warmup iteration " << i + 1 << " took " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " milliseconds" << std::endl;
+            std::cout << "Warmup took " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " milliseconds" << std::endl;
         }
 
         // Benchmark iterations
@@ -307,7 +313,7 @@ int main() {
                 size_t input_size = ModelWeightSizes[j].first;
                 size_t output_size = ModelWeightSizes[j].second;
                 bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
-                                        scale_x_vectors[j], scale_y_vectors[j], input_size, output_size,
+                                        scale_x_vectors[j], out_scale, input_size, output_size,
                                         output_buffers[j]);
             }
         }
@@ -327,10 +333,14 @@ int main() {
     // Free allocated buffers
     for (size_t i = 0; i < ModelWeightSizes.size(); ++i) {
         free_aligned_buffer(input_vectors[i]);
-        free_aligned_buffer(mask_add_vectors[i]);
-        free_aligned_buffer(mask_sub_vectors[i]);
+        if (CpuSupportsAVX512()) {
+            free_aligned_buffer(mask64_add_vectors[i]);
+            free_aligned_buffer(mask64_sub_vectors[i]);
+        } else {
+            free_aligned_buffer(mask_add_vectors[i]);
+            free_aligned_buffer(mask_sub_vectors[i]);
+        }
         free_aligned_buffer(scale_x_vectors[i]);
-        free_aligned_buffer(scale_y_vectors[i]);
         free_aligned_buffer(output_buffers[i]);
     }
 

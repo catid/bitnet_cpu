@@ -1,6 +1,7 @@
 #include "tools.h"
 
 #include <array>
+#include <cstdint>
 
 template <typename T>
 T* allocate_aligned_buffer(size_t size) {
@@ -18,6 +19,9 @@ void free_aligned_buffer(void* ptr) {
 // Explicit instantiation of the template function
 template int8_t* allocate_aligned_buffer<int8_t>(size_t size);
 template float* allocate_aligned_buffer<float>(size_t size);
+template uint64_t* allocate_aligned_buffer<uint64_t>(size_t size);
+// Add more here...
+
 
 #ifdef ENABLE_AVX512_BUILD
 
