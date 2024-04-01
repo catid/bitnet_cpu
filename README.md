@@ -35,7 +35,7 @@ make -j
 
 ## Results for AVX-512
 
-I optimized the reference inference kernel using AVX-512 on a rented Intel Xeon W-2295:
+I optimized the reference inference kernel using AVX-512 on a rented Intel Xeon W-2295.  This is using OMP for multi-thread optimization, and some careful unrolling for pipeline parallelism.
 
 ```bash
 catid@project512:~/sources/bitnet_cpu/build$ ./tests/math_test 
