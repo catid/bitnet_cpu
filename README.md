@@ -44,6 +44,48 @@ Average Time per Iteration: 25 milliseconds
 
 This would be about 1000/25 = ~40 tokens per second on CPUs with AVX-512.
 
+Here's on my AMD Ryzen 9 7950X Windows PC:
+
+```bash
+mrcat@kuang3 MINGW64 ~/sources/bitnet_cpu/build (master)
+$ ./tests/Release/math_test.exe
+Running non-AVX-512 version
+Test case 1 passed!
+Test case 2 passed!
+Test case 3 passed!
+Test case 4 passed!
+Running AVX-512 version
+Tests passed!
+
+mrcat@kuang3 MINGW64 ~/sources/bitnet_cpu/build (master)
+$ ./Release/benchmark_model.exe
+Preallocating buffers...
+Benchmarking model...
+Warmup took 21 milliseconds
+Benchmark Results:
+Number of Layers: 182
+Number of Benchmark Iterations: 100
+Average Time per Iteration: 18.86 milliseconds
+```
+
+This is ~50 tokens/second with AVX-512.
+
+Here's on the same machine with AVX2 instead:
+
+```bash
+mrcat@kuang3 MINGW64 ~/sources/bitnet_cpu/build (master)
+$ ./Release/benchmark_model.exe
+Preallocating buffers...
+Benchmarking model...
+Warmup took 63 milliseconds
+Benchmark Results:
+Number of Layers: 182
+Number of Benchmark Iterations: 100
+Average Time per Iteration: 63.91 milliseconds
+```
+
+So we have 15 tokens/second without AVX-512.
+
 Compare this to AMD Ryzen 5 7535HS CPU achieves about 7.4 tokens/second for Gemma 3B, and it's clear that the BitNet inference kernel is competitive with 8-bit inference on CPU in some cases.
 
 ## CPU Approach 2: AVX2

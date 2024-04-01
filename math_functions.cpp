@@ -93,8 +93,8 @@ void bitnet_vmul_simd_unroll(const int8_t* x, const int8_t* mask_opcode,
                       size_t input_size, size_t output_size, float* output) {
     assert(input_size % 32 == 0);
 
-    #pragma omp parallel for num_threads(20)
-    for (size_t i = 0; i < output_size; ++i) {
+#pragma omp parallel for num_threads(16)
+    for (int i = 0; i < (int)output_size; ++i) {
         double out_row = 0.0;
 
         const int8_t* mask_row = mask_opcode + i * input_size;
@@ -259,8 +259,8 @@ void bitnet_vmul_avx512_unroll(const int8_t* x, const uint64_t* mask_add, const 
 {
     assert(input_size % 64 == 0);
 
-    #pragma omp parallel for num_threads(20)
-    for (int i = 0; i < output_size; ++i) {
+#pragma omp parallel for num_threads(16)
+    for (int i = 0; i < (int)output_size; ++i) {
         double row_sum = 0.0;
 
         const uint64_t* add_row = mask_add + i * input_size / 64;

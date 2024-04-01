@@ -77,9 +77,9 @@ bool random_unit_test() {
     const size_t output_size = 8640;
 
     std::random_device rd;
-    //std::mt19937 gen(rd());
-    std::mt19937 gen(1234);
-    std::uniform_int_distribution<int8_t> int8_dist(-128, 127);
+    std::mt19937 gen(rd());
+    //std::mt19937 gen(1234);
+    std::uniform_int_distribution<int> int8_dist(-128, 127);
     std::uniform_real_distribution<float> float_dist(0.1f, 20.0f);
 
     std::vector<int8_t> x(input_size);
@@ -156,7 +156,7 @@ bool random_unit_test_avx512() {
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int8_t> int8_dist(-128, 127);
+    std::uniform_int_distribution<int> int8_dist(-128, 127);
     std::uniform_real_distribution<float> float_dist(0.1f, 20.0f);
 
     std::vector<int8_t> x(input_size);

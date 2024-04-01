@@ -3,9 +3,20 @@
 #include <array>
 #include <cstdint>
 
+#ifdef _MSC_VER
+#include <malloc.h>
+#include <intrin.h>
+#else
+#include <cstdlib>
+#endif
+
 template <typename T>
 T* allocate_aligned_buffer(size_t size) {
+#ifdef _MSC_VER
+    void* ptr = _aligned_malloc(size * sizeof(T), BITNET_CPU_ALIGNMENT);
+#else
     void* ptr = std::aligned_alloc(BITNET_CPU_ALIGNMENT, size * sizeof(T));
+#endif
     if (ptr == nullptr) {
         return nullptr;
     }
@@ -13,7 +24,11 @@ T* allocate_aligned_buffer(size_t size) {
 }
 
 void free_aligned_buffer(void* ptr) {
+#ifdef _MSC_VER
+    _aligned_free(ptr);
+#else
     std::free(ptr);
+#endif
 }
 
 // Explicit instantiation of the template function
@@ -30,12 +45,16 @@ bool CpuSupportsAVX512()
     std::array<int, 4> cpuidResult{};
     bool avx512FSupported = false, avx512BWSupported = false, avx512VLSupported = false;
 
+#ifdef _MSC_VER
+    __cpuid(cpuidResult.data(), 7);
+#else
     // Invoke CPUID with eax=7, ecx=0 to check extended features
     __asm__(
         "cpuid"
         : "=a"(cpuidResult[0]), "=b"(cpuidResult[1]), "=c"(cpuidResult[2]), "=d"(cpuidResult[3])
         : "a"(7), "c"(0)
     );
+#endif
 
     // Check AVX512F - Bit 16 of EBX
     avx512FSupported = (cpuidResult[1] & (1 << 16)) != 0;
