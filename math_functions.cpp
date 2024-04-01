@@ -10,7 +10,7 @@ void bitnet_vmul_ref(const int8_t* x, const int8_t* mask_add, const int8_t* mask
     assert(input_size % 32 == 0);
 
     for (size_t i = 0; i < output_size; ++i) {
-        float out_row = 0.0f;
+        double out_row = 0.0;
         const int8_t* row_add = mask_add + i * input_size;
         const int8_t* row_sub = mask_sub + i * input_size;
 
@@ -42,8 +42,8 @@ void bitnet_vmul_simd_unrolled(const int8_t* x, const int8_t* mask_add, const in
     assert(output_size % 2 == 0);  // Ensure output_size is even
 
     for (size_t i = 0; i < output_size; i += 2) {
-        float out_row1 = 0.0f;
-        float out_row2 = 0.0f;
+        double out_row1 = 0.0;
+        double out_row2 = 0.0;
         const int8_t* row_add1 = mask_add + i * input_size;
         const int8_t* row_add2 = mask_add + (i + 1) * input_size;
         const int8_t* row_sub1 = mask_sub + i * input_size;
@@ -109,7 +109,7 @@ void bitnet_vmul_simd(const int8_t* x, const int8_t* mask_add, const int8_t* mas
     assert(input_size % 32 == 0);
 
     for (size_t i = 0; i < output_size; ++i) {
-        float out_row = 0.0f;
+        double out_row = 0.0;
         const int8_t* row_add = mask_add + i * input_size;
         const int8_t* row_sub = mask_sub + i * input_size;
 

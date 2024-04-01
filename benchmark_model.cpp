@@ -261,6 +261,8 @@ int main() {
 
     double avg_time = 0.0;
 
+#ifdef ENABLE_AVX512_BUILD
+
     if (CpuSupportsAVX512())
     {
         {
@@ -295,6 +297,7 @@ int main() {
         avg_time = static_cast<double>(duration.count()) / NUM_BENCHMARK_ITERATIONS;
     }
     else
+#endif // ENABLE_AVX512_BUILD
     {
         {
             auto start_time = std::chrono::high_resolution_clock::now();
