@@ -87,7 +87,7 @@ Here's on the same machine with AVX2 instead:
 
 ```bash
 mrcat@kuang3 MINGW64 ~/sources/bitnet_cpu/build (master)
-$ ./Release/benchmark_model.exe
+$ ./Release/benchmark_model.exe
 Preallocating buffers...
 Benchmarking model...
 Warmup took 63 milliseconds
