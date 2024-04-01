@@ -86,7 +86,8 @@ bool random_unit_test() {
     const size_t output_size = 8640;
 
     std::random_device rd;
-    std::mt19937 gen(rd());
+    //std::mt19937 gen(rd());
+    std::mt19937 gen(1234);
     std::uniform_int_distribution<int8_t> int8_dist(-128, 127);
     std::uniform_real_distribution<float> float_dist(0.1f, 20.0f);
 
@@ -101,6 +102,11 @@ bool random_unit_test() {
 
     for (size_t i = 0; i < x.size(); ++i) {
         x[i] = int8_dist(gen);
+
+        // Note: The kernel does not work with -128 as the input
+        if (x[i] == -128) {
+            x[i] = -127;
+        }
     }
 
     for (size_t i = 0; i < scale_x.size(); ++i) {
@@ -109,28 +115,39 @@ bool random_unit_test() {
 
     std::cout << "Running non-AVX-512 version" << std::endl;
 
-    std::vector<int8_t> mask_add(output_size * input_size);
-    std::vector<int8_t> mask_sub(output_size * input_size);
+    std::vector<int8_t> mask_opcode(output_size * input_size);
 
-    for (size_t i = 0; i < mask_add.size(); ++i) {
-        mask_add[i] = int8_dist(gen) >= 0 ? -1 : 0;
-        mask_sub[i] = int8_dist(gen) >= 0 ? -1 : 0;
+    for (size_t i = 0; i < mask_opcode.size(); ++i) {
+        int opcode = int8_dist(gen);
+        if (opcode < -42) {
+            mask_opcode[i] = -1;
+        } else if (opcode > 42) {
+            mask_opcode[i] = 1;
+        } else {
+            mask_opcode[i] = 0;
+        }
     }
 
-    bitnet_vmul_simd_unrolled(x.data(), mask_add.data(), mask_sub.data(),
+    bitnet_vmul_simd_opt(x.data(), mask_opcode.data(),
                 scale_x.data(), out_scale,
                 input_size, output_size, out_simd.data());
 
-    bitnet_vmul_ref(x.data(), mask_add.data(), mask_sub.data(),
+    bitnet_vmul_ref(x.data(), mask_opcode.data(),
                     scale_x.data(), out_scale,
                     input_size, output_size, out_ref.data());
 
+    int sum = 0;
     for (size_t i = 0; i < output_size; ++i) {
+        sum |= out_ref[i] != 0.f;
         double delta = std::abs(out_simd[i] - out_ref[i]);
         if (delta > 1e-5) {
             std::cout << "Error at output index " << i << ": " << out_simd[i] << " vs " << out_ref[i] << std::endl;
             return false;
         }
+    }
+    if (sum == 0) {
+        std::cout << "Error: output is 0" << std::endl;
+        return false;
     }
     return true;
 }

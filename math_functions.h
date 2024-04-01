@@ -5,21 +5,31 @@
 
 #include "tools.h"
 
-// You can use CpuSupportsAVX512() to check for AVX-512 support
+// You can use CpuSupportsAVX512() and ENABLE_AVX512_BUILD to check for AVX-512 support:
 
-// Masks defined with 1 byte per mask (16 bits per parameter):
-
-void bitnet_vmul_ref(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
+// x[] 1D array: One value for each input (input_size of these)
+// Mask opcode is 1 byte per parameter, set to -1 if it should subtract, 1 if it should add, or 0 if it is pruned.
+// Note that x[] is not allowed to be -128, as the kernel does not work with that value.
+// scale_x[] 1D array: One value for every 256 inputs (g256 quant group)
+// output[] 1D array: `output_size` floats
+// TBD: out_scale could also use g256 or one per output row
+void bitnet_vmul_ref(const int8_t* x, const int8_t* mask_opcode,
                      const float* scale_x, float out_scale,
                      size_t input_size, size_t output_size, float* output);
 
-void bitnet_vmul_simd(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
+void bitnet_vmul_simd(const int8_t* x, const int8_t* mask_opcode,
                       const float* scale_x, float out_scale,
                       size_t input_size, size_t output_size, float* output);
 
-void bitnet_vmul_simd_unrolled(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
-                               const float* scale_x, float out_scale,
-                               size_t input_size, size_t output_size, float* output);
+void bitnet_vmul_simd_unroll(const int8_t* x, const int8_t* mask_opcode,
+                      const float* scale_x, float out_scale,
+                      size_t input_size, size_t output_size, float* output);
+
+static inline void bitnet_vmul_simd_opt(const int8_t* x, const int8_t* mask_opcode,
+                      const float* scale_x, float out_scale,
+                      size_t input_size, size_t output_size, float* output) {
+    bitnet_vmul_simd_unroll(x, mask_opcode, scale_x, out_scale, input_size, output_size, output);
+}
 
 #ifdef ENABLE_AVX512_BUILD
 

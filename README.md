@@ -46,19 +46,28 @@ This would be about 1000/25 = ~40 tokens per second on CPUs with AVX-512.
 
 Compare this to AMD Ryzen 5 7535HS CPU achieves about 7.4 tokens/second for Gemma 3B, and it's clear that the BitNet inference kernel is competitive with 8-bit inference on CPU in some cases.
 
-## CPU Approach 2: AVX
+## CPU Approach 2: AVX2
 
-Without the AVX-512 intrinsics, it takes about ~1.5 seconds to run through all the heavy layers of the model.  If this was properly parallelized, you might be able to achieve a speedup of 16x or so.  So let's say the best we could do is about 8 tokens per second with this type of model. Also to achieve this performance you have to use 16 bits per weight, so it does not have size advantages over normal models either despite being ternary.
+Using the _mm256_sign_epi8() intrinsic, we can use 1 byte per parameter (8-bit quant) to implement an efficient BitNet kernel that is portable to most Intel CPUs using AVX2.  This is using the same unrolling/multi-threading optimizations as the AVX-512 version.
+
+Running on an 12th Gen Intel(R) Core(TM) i9-12900K with 20 threads:
 
 ```
-(base) ➜  build git:(master) ./benchmark_model
+(base) ➜  build git:(master) ✗ ./tests/math_test
+Running non-AVX-512 version
+Tests passed!
+
+(base) ➜  build git:(master) ✗ ./benchmark_model
 Preallocating buffers...
-Bencharking model...
+Benchmarking model...
+Warmup took 35 milliseconds
 Benchmark Results:
 Number of Layers: 182
 Number of Benchmark Iterations: 100
-Average Time per Iteration: 1264.97 milliseconds
+Average Time per Iteration: 34.85 milliseconds
 ```
+
+We are getting about 1000/35 = ~28 tokens per second on most Intel CPUs with AVX2.
 
 ## CPU Approach 3: LOL
 

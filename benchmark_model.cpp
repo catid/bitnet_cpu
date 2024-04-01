@@ -4,8 +4,6 @@
 #include <vector>
 #include <utility>
 
-#include <omp.h>
-
 #include "math_functions.h"
 #include "tools.h"
 
@@ -195,7 +193,7 @@ std::vector<std::pair<size_t, size_t>> ModelWeightSizes = {
     { 3200, 3200 },
 };
 
-const size_t NUM_BENCHMARK_ITERATIONS = 1;
+const size_t NUM_BENCHMARK_ITERATIONS = 100;
 
 int main() {
 
@@ -203,8 +201,7 @@ int main() {
 
     // Preallocate input vectors, mask vectors, scale vectors, and output buffers
     std::vector<int8_t*> input_vectors;
-    std::vector<int8_t*> mask_add_vectors;
-    std::vector<int8_t*> mask_sub_vectors;
+    std::vector<int8_t*> mask_opcode_vectors;
     std::vector<uint64_t*> mask64_add_vectors;
     std::vector<uint64_t*> mask64_sub_vectors;
     std::vector<float*> scale_x_vectors;
@@ -226,6 +223,11 @@ int main() {
 
         for (size_t i = 0; i < input_size; ++i) {
             input_vector[i] = static_cast<int8_t>(int8_dist(gen));
+
+            // Note: The AVX2 kernel does not work with -128 as the input
+            if (input_vector[i] == -128) {
+                input_vector[i] = -127;
+            }
         }
 
         if (CpuSupportsAVX512()) {
@@ -238,14 +240,18 @@ int main() {
             mask64_add_vectors.push_back(mask64_add_vector);
             mask64_sub_vectors.push_back(mask64_sub_vector);
         } else {
-            int8_t* mask_add_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
-            int8_t* mask_sub_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
+            int8_t* mask_opcode_vector = allocate_aligned_buffer<int8_t>(output_size * input_size);
             for (size_t i = 0; i < output_size * input_size; ++i) {
-                mask_add_vector[i] = static_cast<int8_t>(int8_dist(gen) >= 0 ? -1 : 0);
-                mask_sub_vector[i] = static_cast<int8_t>(int8_dist(gen) >= 0 ? -1 : 0);
+                int opcode = int8_dist(gen);
+                if (opcode < -42) {
+                    mask_opcode_vector[i] = -1;
+                } else if (opcode > 42) {
+                    mask_opcode_vector[i] = 1;
+                } else {
+                    mask_opcode_vector[i] = 0;
+                }
             }
-            mask_add_vectors.push_back(mask_add_vector);
-            mask_sub_vectors.push_back(mask_sub_vector);
+            mask_opcode_vectors.push_back(mask_opcode_vector);
         }
 
         for (size_t i = 0; i < input_size / 32; ++i) {
@@ -262,7 +268,6 @@ int main() {
     double avg_time = 0.0;
 
 #ifdef ENABLE_AVX512_BUILD
-
     if (CpuSupportsAVX512())
     {
         {
@@ -281,7 +286,6 @@ int main() {
         // Benchmark iterations
         auto start_time = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i < NUM_BENCHMARK_ITERATIONS; ++i) {
-            #pragma omp parallel for
             for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
                 size_t input_size = ModelWeightSizes[j].first;
                 size_t output_size = ModelWeightSizes[j].second;
@@ -304,7 +308,8 @@ int main() {
             for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
                 size_t input_size = ModelWeightSizes[j].first;
                 size_t output_size = ModelWeightSizes[j].second;
-                bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+
+                bitnet_vmul_simd_opt(input_vectors[j], mask_opcode_vectors[j],
                                         scale_x_vectors[j], out_scale, input_size, output_size,
                                         output_buffers[j]);
             }
@@ -318,7 +323,7 @@ int main() {
             for (size_t j = 0; j < ModelWeightSizes.size(); ++j) {
                 size_t input_size = ModelWeightSizes[j].first;
                 size_t output_size = ModelWeightSizes[j].second;
-                bitnet_vmul_simd_unrolled(input_vectors[j], mask_add_vectors[j], mask_sub_vectors[j],
+                bitnet_vmul_simd_opt(input_vectors[j], mask_opcode_vectors[j],
                                         scale_x_vectors[j], out_scale, input_size, output_size,
                                         output_buffers[j]);
             }
@@ -343,8 +348,7 @@ int main() {
             free_aligned_buffer(mask64_add_vectors[i]);
             free_aligned_buffer(mask64_sub_vectors[i]);
         } else {
-            free_aligned_buffer(mask_add_vectors[i]);
-            free_aligned_buffer(mask_sub_vectors[i]);
+            free_aligned_buffer(mask_opcode_vectors[i]);
         }
         free_aligned_buffer(scale_x_vectors[i]);
         free_aligned_buffer(output_buffers[i]);

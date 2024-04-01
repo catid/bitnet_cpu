@@ -3,146 +3,181 @@
 
 #include <immintrin.h>
 #include <cassert>
+#include <omp.h>
 
-void bitnet_vmul_ref(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
+// Sum all 16-bit values in a 256-bit vector
+static int16_t mm256_reduce_add_epi16(__m256i ymm0) {
+    __m128i xmm0 = _mm256_extracti128_si256(ymm0, 0);
+    __m128i xmm1 = _mm256_extracti128_si256(ymm0, 1);
+    
+    xmm0 = _mm_add_epi16(xmm0, xmm1);
+    
+    xmm1 = _mm_shuffle_epi32(xmm0, 0x4E); // 0x4E = 0b01001110
+    xmm0 = _mm_add_epi16(xmm0, xmm1);
+    
+    xmm1 = _mm_shuffle_epi32(xmm0, 0xB1); // 0xB1 = 0b10110001
+    xmm0 = _mm_add_epi16(xmm0, xmm1);
+    
+    xmm1 = _mm_shufflelo_epi16(xmm0, 0xB1); // 0xB1 = 0b10110001
+    xmm0 = _mm_add_epi16(xmm0, xmm1);
+    
+    return static_cast<int16_t>(_mm_cvtsi128_si32(xmm0));
+}
+
+void bitnet_vmul_ref(const int8_t* x, const int8_t* mask_opcode,
                      const float* scale_x, float out_scale,
                      size_t input_size, size_t output_size, float* output) {
     assert(input_size % 32 == 0);
 
     for (size_t i = 0; i < output_size; ++i) {
         double out_row = 0.0;
-        const int8_t* row_add = mask_add + i * input_size;
-        const int8_t* row_sub = mask_sub + i * input_size;
 
         for (size_t j = 0; j < input_size; j += 32) {
-            int block_index = j / 32;
+            int32_t y = 0;
 
-            int32_t temp = 0;
             for (size_t k = 0; k < 32; ++k) {
                 size_t index = j + k;
-                int8_t x_val = x[index];
+                int32_t x_val = static_cast<int32_t>(x[index]);
 
-                int y = static_cast<int16_t>(x_val & row_add[index]) - 
-                        static_cast<int16_t>(x_val & row_sub[index]);
+                if (mask_opcode[index] < 0) {
+                    x_val = -x_val;
+                }
+                else if (mask_opcode[index] > 0) {
+                    // Do nothing
+                } else {
+                    x_val = 0;
+                }
 
-                temp += y;
+                y += x_val;
             }
 
-            out_row += scale_x[block_index] * out_scale * temp;
+            out_row += (double)scale_x[j / 256] * y;
         }
 
-        output[i] = out_row;
+        output[i] = out_row * out_scale;
+
+        mask_opcode += input_size;
     }
 }
 
-void bitnet_vmul_simd_unrolled(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
-                               const float* scale_x, float out_scale,
-                               size_t input_size, size_t output_size, float* output) {
-    assert(input_size % 32 == 0);
-    assert(output_size % 2 == 0);  // Ensure output_size is even
-
-    for (size_t i = 0; i < output_size; i += 2) {
-        double out_row1 = 0.0;
-        double out_row2 = 0.0;
-        const int8_t* row_add1 = mask_add + i * input_size;
-        const int8_t* row_add2 = mask_add + (i + 1) * input_size;
-        const int8_t* row_sub1 = mask_sub + i * input_size;
-        const int8_t* row_sub2 = mask_sub + (i + 1) * input_size;
-
-        for (size_t j = 0; j < input_size; j += 32) {
-            int block_index = j / 32;
-            __m256i mask_add_block1 = _mm256_loadu_si256((__m256i*)(row_add1 + j));
-            __m256i mask_add_block2 = _mm256_loadu_si256((__m256i*)(row_add2 + j));
-            __m256i mask_sub_block1 = _mm256_loadu_si256((__m256i*)(row_sub1 + j));
-            __m256i mask_sub_block2 = _mm256_loadu_si256((__m256i*)(row_sub2 + j));
-
-            __m256i x_block = _mm256_loadu_si256((__m256i*)(x + j));
-
-            __m256i temp_add1 = _mm256_and_si256(x_block, mask_add_block1);
-            __m256i temp_add2 = _mm256_and_si256(x_block, mask_add_block2);
-            __m256i temp_sub1 = _mm256_and_si256(x_block, mask_sub_block1);
-            __m256i temp_sub2 = _mm256_and_si256(x_block, mask_sub_block2);
-
-            __m256i add_lo1 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_add1));
-            __m256i add_hi1 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_add1, 1));
-            __m256i add_lo2 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_add2));
-            __m256i add_hi2 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_add2, 1));
-
-            __m256i sub_lo1 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_sub1));
-            __m256i sub_hi1 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_sub1, 1));
-            __m256i sub_lo2 = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_sub2));
-            __m256i sub_hi2 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_sub2, 1));
-
-            __m256i add_sum1 = _mm256_add_epi16(add_lo1, add_hi1);
-            __m256i add_sum2 = _mm256_add_epi16(add_lo2, add_hi2);
-            __m256i sub_sum1 = _mm256_add_epi16(sub_lo1, sub_hi1);
-            __m256i sub_sum2 = _mm256_add_epi16(sub_lo2, sub_hi2);
-
-            __m256i sum1 = _mm256_sub_epi16(add_sum1, sub_sum1);
-            __m256i sum2 = _mm256_sub_epi16(add_sum2, sub_sum2);
-
-            sum1 = _mm256_hadd_epi16(sum1, sum1);
-            sum1 = _mm256_hadd_epi16(sum1, sum1);
-            sum1 = _mm256_hadd_epi16(sum1, sum1);
-
-            sum2 = _mm256_hadd_epi16(sum2, sum2);
-            sum2 = _mm256_hadd_epi16(sum2, sum2);
-            sum2 = _mm256_hadd_epi16(sum2, sum2);
-
-            int y1 = static_cast<int16_t>(_mm256_extract_epi16(sum1, 0)) +
-                     static_cast<int16_t>(_mm256_extract_epi16(sum1, 8));
-            int y2 = static_cast<int16_t>(_mm256_extract_epi16(sum2, 0)) +
-                     static_cast<int16_t>(_mm256_extract_epi16(sum2, 8));
-
-            out_row1 += scale_x[block_index] * out_scale * y1;
-            out_row2 += scale_x[block_index] * out_scale * y2;
-        }
-
-        output[i] = out_row1;
-        output[i + 1] = out_row2;
-    }
-}
-
-void bitnet_vmul_simd(const int8_t* x, const int8_t* mask_add, const int8_t* mask_sub,
+void bitnet_vmul_simd(const int8_t* x, const int8_t* mask_opcode,
                       const float* scale_x, float out_scale,
                       size_t input_size, size_t output_size, float* output) {
     assert(input_size % 32 == 0);
 
     for (size_t i = 0; i < output_size; ++i) {
         double out_row = 0.0;
-        const int8_t* row_add = mask_add + i * input_size;
-        const int8_t* row_sub = mask_sub + i * input_size;
 
         for (size_t j = 0; j < input_size; j += 32) {
-            int block_index = j / 32;
-            __m256i mask_add_block = _mm256_loadu_si256((__m256i*)(row_add + j));
-            __m256i mask_sub_block = _mm256_loadu_si256((__m256i*)(row_sub + j));
-
+            __m256i mask = _mm256_loadu_si256((__m256i*)(mask_opcode + j));
             __m256i x_block = _mm256_loadu_si256((__m256i*)(x + j));
 
-            __m256i temp_add = _mm256_and_si256(x_block, mask_add_block);
-            __m256i temp_sub = _mm256_and_si256(x_block, mask_sub_block);
+            x_block = _mm256_sign_epi8(x_block, mask);
 
-            __m256i add_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_add));
-            __m256i add_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_add, 1));
+            __m256i x_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(x_block));
+            __m256i x_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x_block, 1));
+            __m256i sum = _mm256_add_epi16(x_lo, x_hi); 
 
-            __m256i sub_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(temp_sub));
-            __m256i sub_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(temp_sub, 1));
-
-            __m256i add_sum = _mm256_add_epi16(add_lo, add_hi);
-            __m256i sub_sum = _mm256_add_epi16(sub_lo, sub_hi);
-
-            __m256i sum = _mm256_sub_epi16(add_sum, sub_sum); 
-
-            sum = _mm256_hadd_epi16(sum, sum);
-            sum = _mm256_hadd_epi16(sum, sum);
-            sum = _mm256_hadd_epi16(sum, sum);
-            int y = static_cast<int16_t>( _mm256_extract_epi16(sum, 0) ) + static_cast<int16_t>( _mm256_extract_epi16(sum, 8) );
-
-            out_row += scale_x[block_index] * out_scale * y;
+            int y = mm256_reduce_add_epi16(sum);
+            out_row += (double)scale_x[j / 256] * y;
         }
 
-        output[i] = out_row;
+        output[i] = out_row * out_scale;
+
+        mask_opcode += input_size;
+    }
+}
+
+void bitnet_vmul_simd_unroll(const int8_t* x, const int8_t* mask_opcode,
+                      const float* scale_x, float out_scale,
+                      size_t input_size, size_t output_size, float* output) {
+    assert(input_size % 32 == 0);
+
+    #pragma omp parallel for num_threads(20)
+    for (size_t i = 0; i < output_size; ++i) {
+        double out_row = 0.0;
+
+        const int8_t* mask_row = mask_opcode + i * input_size;
+
+        size_t j = 0;
+        for (; j + 256 <= input_size; j += 256) {
+            __m256i mask0 = _mm256_loadu_si256((__m256i*)(mask_row + j));
+            __m256i mask1 = _mm256_loadu_si256((__m256i*)(mask_row + j + 32));
+            __m256i mask2 = _mm256_loadu_si256((__m256i*)(mask_row + j + 64));
+            __m256i mask3 = _mm256_loadu_si256((__m256i*)(mask_row + j + 96));
+            __m256i mask4 = _mm256_loadu_si256((__m256i*)(mask_row + j + 128));
+            __m256i mask5 = _mm256_loadu_si256((__m256i*)(mask_row + j + 160));
+            __m256i mask6 = _mm256_loadu_si256((__m256i*)(mask_row + j + 192));
+            __m256i mask7 = _mm256_loadu_si256((__m256i*)(mask_row + j + 224));
+
+            __m256i x0 = _mm256_loadu_si256((__m256i*)(x + j));
+            __m256i x1 = _mm256_loadu_si256((__m256i*)(x + j + 32));
+            __m256i x2 = _mm256_loadu_si256((__m256i*)(x + j + 64));
+            __m256i x3 = _mm256_loadu_si256((__m256i*)(x + j + 96));
+            __m256i x4 = _mm256_loadu_si256((__m256i*)(x + j + 128));
+            __m256i x5 = _mm256_loadu_si256((__m256i*)(x + j + 160));
+            __m256i x6 = _mm256_loadu_si256((__m256i*)(x + j + 192));
+            __m256i x7 = _mm256_loadu_si256((__m256i*)(x + j + 224));
+
+            // Apply mask opcode to x[]
+            x0 = _mm256_sign_epi8(x0, mask0);
+            x1 = _mm256_sign_epi8(x1, mask1);
+            x2 = _mm256_sign_epi8(x2, mask2);
+            x3 = _mm256_sign_epi8(x3, mask3);
+            x4 = _mm256_sign_epi8(x4, mask4);
+            x5 = _mm256_sign_epi8(x5, mask5);
+            x6 = _mm256_sign_epi8(x6, mask6);
+            x7 = _mm256_sign_epi8(x7, mask7);
+
+            // Sum within each 256 byte chunk
+            __m256i x0_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x0, 1));
+            __m256i x1_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x1, 1));
+            __m256i x2_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x2, 1));
+            __m256i x3_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x3, 1));
+            __m256i x4_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x4, 1));
+            __m256i x5_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x5, 1));
+            __m256i x6_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x6, 1));
+            __m256i x7_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x7, 1));
+
+            x0 = _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(x0)), x0_hi);
+            x1 = _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(x1)), x1_hi);
+            x2 = _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(x2)), x2_hi);
+            x3 = _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(x3)), x3_hi);
+            x4 = _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(x4)), x4_hi);
+            x5 = _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(x5)), x5_hi);
+            x6 = _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(x6)), x6_hi);
+            x7 = _mm256_add_epi16(_mm256_cvtepi8_epi16(_mm256_castsi256_si128(x7)), x7_hi);
+
+            // Reduce!
+            x0 = _mm256_add_epi16(x0, x1);
+            x2 = _mm256_add_epi16(x2, x3);
+            x4 = _mm256_add_epi16(x4, x5);
+            x6 = _mm256_add_epi16(x6, x7);
+
+            x0 = _mm256_add_epi16(x0, x2);
+            x4 = _mm256_add_epi16(x4, x6);
+
+            x0 = _mm256_add_epi16(x0, x4);
+
+            int y = mm256_reduce_add_epi16(x0);
+            out_row += (double)scale_x[j / 256] * y;
+        }
+
+        for (; j < input_size; j += 32) {
+            __m256i mask = _mm256_loadu_si256((__m256i*)(mask_row + j));
+            __m256i x_block = _mm256_loadu_si256((__m256i*)(x + j));
+
+            x_block = _mm256_sign_epi8(x_block, mask);
+
+            __m256i x_lo = _mm256_cvtepi8_epi16(_mm256_castsi256_si128(x_block));
+            __m256i x_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(x_block, 1));
+            __m256i sum = _mm256_add_epi16(x_lo, x_hi); 
+
+            int y = mm256_reduce_add_epi16(sum);
+            out_row += (double)scale_x[j / 256] * y;
+        }
+
+        output[i] = out_row * out_scale;
     }
 }
 
@@ -180,24 +215,6 @@ void bitnet_vmul_avx512_ref(const int8_t* x, const uint64_t* mask_add, const uin
         mask_add += input_size / 64;
         mask_sub += input_size / 64;
     }
-}
-
-static int16_t mm256_reduce_add_epi16(__m256i ymm0) {
-    __m128i xmm0 = _mm256_extracti128_si256(ymm0, 0);
-    __m128i xmm1 = _mm256_extracti128_si256(ymm0, 1);
-    
-    xmm0 = _mm_add_epi16(xmm0, xmm1);
-    
-    xmm1 = _mm_shuffle_epi32(xmm0, 0x4E); // 0x4E = 0b01001110
-    xmm0 = _mm_add_epi16(xmm0, xmm1);
-    
-    xmm1 = _mm_shuffle_epi32(xmm0, 0xB1); // 0xB1 = 0b10110001
-    xmm0 = _mm_add_epi16(xmm0, xmm1);
-    
-    xmm1 = _mm_shufflelo_epi16(xmm0, 0xB1); // 0xB1 = 0b10110001
-    xmm0 = _mm_add_epi16(xmm0, xmm1);
-    
-    return static_cast<int16_t>(_mm_cvtsi128_si32(xmm0));
 }
 
 void bitnet_vmul_avx512(const int8_t* x, const uint64_t* mask_add, const uint64_t* mask_sub,
@@ -242,6 +259,7 @@ void bitnet_vmul_avx512_unroll(const int8_t* x, const uint64_t* mask_add, const 
 {
     assert(input_size % 64 == 0);
 
+    #pragma omp parallel for num_threads(16)
     for (int i = 0; i < output_size; ++i) {
         double row_sum = 0.0;
 
